@@ -2,6 +2,7 @@ use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::page::ScreenshotParams;
 use futures::StreamExt;
+use rand;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{Instant, sleep};
@@ -93,6 +94,48 @@ async fn wait_for_send(page: &Page, before: usize, timeout: Duration) -> anyhow:
     }
 }
 
+async fn open_chat(page: &Page, selector: &str) -> anyhow::Result<()> {
+    for _attempt in 0..3 {
+        page.find_element(selector).await?.click().await?;
+        if wait_for_element(
+            page,
+            "[role='textbox'][contenteditable='true']",
+            Duration::from_secs(5),
+        )
+        .await
+        .is_ok()
+        {
+            return Ok(());
+        }
+        println!("click did not open the chat, retrying");
+    }
+    anyhow::bail!("chat did not open after 3 clicks")
+}
+
+async fn send_to_friend(page: &Page, friend: &Friend, message: &str) -> anyhow::Result<()> {
+    let selector = format!("[data-conversation-id='{}']", friend.conversation_id);
+
+    wait_for_element(page, &selector, Duration::from_secs(15)).await?;
+    open_chat(page, &selector).await?;
+
+    let before = wait_for_stable_count(page, Duration::from_secs(10)).await?;
+    println!("messages before: {}", before);
+
+    page.find_element("[role='textbox'][contenteditable='true']")
+        .await?
+        .click()
+        .await?
+        .type_str(message)
+        .await?
+        .press_key("Enter")
+        .await?;
+
+    wait_for_send(page, before, Duration::from_secs(10)).await?;
+    println!("sent!");
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = load_config("config.toml")?;
@@ -117,47 +160,21 @@ async fn main() -> anyhow::Result<()> {
 
     let page = browser.new_page("https://tiktok.com/messages").await?;
 
-    wait_for_element(
-        &page,
-        "[data-e2e='dm-new-conversation-avatar']",
-        Duration::from_secs(15),
-    )
-    .await?;
-
-    let friend = &config.friends[0];
-    println!("Opening chat with {}", friend.name);
-
-    let selector = format!("[data-conversation-id='{}']", friend.conversation_id);
-    println!("{}", selector);
-
-    page.find_element(&selector).await?.click().await?;
-    wait_for_element(
-        &page,
-        "[role='textbox'][contenteditable='true']",
-        Duration::from_secs(10),
-    )
-    .await?;
-
-    let before = wait_for_stable_count(&page, Duration::from_secs(10)).await?;
-    println!("messages before: {}", before);
-
-    page.find_element("[role='textbox'][contenteditable='true']")
-        .await?
-        .click()
-        .await?
-        .type_str(&config.message)
-        .await?
-        .press_key("Enter")
-        .await?;
-
-    wait_for_send(&page, before, Duration::from_secs(10)).await?;
-    println!("sent!");
-
-    page.save_screenshot(
-        ScreenshotParams::builder().full_page(true).build(),
-        "messages.png",
-    )
-    .await?;
+    for friend in &config.friends {
+        match send_to_friend(&page, friend, &config.message).await {
+            Ok(()) => println!("sent to {}", friend.name),
+            Err(e) => {
+                println!("FAILED for {}: {:#}", friend.name, e);
+                let _ = page
+                    .save_screenshot(
+                        ScreenshotParams::builder().full_page(true).build(),
+                        format!("failed-{}.png", friend.name),
+                    )
+                    .await;
+            }
+        }
+        sleep(Duration::from_secs(rand::random_range(3..8))).await;
+    }
 
     sleep(Duration::from_secs(5)).await;
     browser.close().await?;
