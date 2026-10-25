@@ -1,0 +1,4 @@
+/target
+chrome-profile/
+*.png
+config.toml

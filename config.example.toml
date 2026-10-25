@@ -1,0 +1,3 @@
+message = "hey"
+send_time = "18:30"
+friends = ["alice", "bob"]
