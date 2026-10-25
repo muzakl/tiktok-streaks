@@ -143,7 +143,6 @@ async fn main() -> anyhow::Result<()> {
     print_plan(&config);
 
     let browser_config = BrowserConfig::builder()
-        .with_head()
         .user_data_dir("./chrome-profile")
         .build()
         .map_err(|e| anyhow::anyhow!(e))?;

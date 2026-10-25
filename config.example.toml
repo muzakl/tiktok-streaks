@@ -1,3 +1,7 @@
 message = "hey"
 send_time = "18:30"
-friends = ["alice", "bob"]
+
+
+[[friends]]
+name = "friend name"
+conversation_id = "0:1:333:4444"
